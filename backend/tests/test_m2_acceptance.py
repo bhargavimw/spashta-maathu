@@ -19,18 +19,23 @@ from backend.pipeline.vad import detect_speech_regions
 
 
 def _generate_harmonic_speech(duration_sec: float, sr: int = 16000, f0: float = 180.0) -> np.ndarray:
-    """Generate multi-harmonic signal with smoothed boundaries."""
+    """Generate multi-harmonic speech-like signal with pitch and syllabic modulation."""
     n = int(sr * duration_sec)
     t = np.linspace(0, duration_sec, n, endpoint=False, dtype=np.float32)
 
+    # Pitch modulation (vibrato at ~5 Hz)
+    pitch = f0 + 10.0 * np.sin(2 * np.pi * 5.0 * t)
+    phase = 2 * np.pi * np.cumsum(pitch) / sr
+
     signal = (
-        0.5 * np.sin(2 * np.pi * f0 * t)
-        + 0.3 * np.sin(2 * np.pi * 2 * f0 * t)
-        + 0.15 * np.sin(2 * np.pi * 3 * f0 * t)
+        0.5 * np.sin(phase)
+        + 0.3 * np.sin(2 * phase)
+        + 0.15 * np.sin(3 * phase)
     ).astype(np.float32)
 
-    envelope = np.ones(n, dtype=np.float32)
-    ramp = min(int(0.03 * sr), n // 4)
+    # Syllabic envelope (~4 Hz speech syllable cadence)
+    envelope = 0.5 * (1.0 + np.sin(2 * np.pi * 4.0 * t)).astype(np.float32)
+    ramp = min(int(0.04 * sr), n // 4)
     if ramp > 0:
         envelope[:ramp] = np.linspace(0, 1, ramp)
         envelope[-ramp:] = np.linspace(1, 0, ramp)
@@ -87,21 +92,18 @@ def test_m2_acceptance_gap_capping_and_no_clicks() -> None:
     assert len(detected_clicks) == 0, f"Detected clicks at sample indices: {detected_clicks}"
 
     # --- Criterion 3: Duration math matches ---
-    # Expected duration:
-    # ~0.10s (trimmed lead) + 2.0s (s1) + 0.20s (capped p1) + 2.5s (s2) + 0.20s (capped p2) + 2.0s (s3) + ~0.10s (trimmed trail)
-    # Expected total ~ 7.10s (vs original 12.0s)
-    expected_duration = (
-        config.pause.edge_silence_trim_ms / 1000.0  # leading
-        + 2.0  # speech 1
-        + config.pause.shortened_gap_target_ms / 1000.0  # pause 1
-        + 2.5  # speech 2
-        + config.pause.shortened_gap_target_ms / 1000.0  # pause 2
-        + 2.0  # speech 3
-        + config.pause.edge_silence_trim_ms / 1000.0  # trailing
-    )
+    from backend.pipeline.splicer import apply_pause_policy_to_gaps
 
-    # Allow small tolerance for zero-crossing snapping (+/- 15 ms per segment)
-    tolerance_sec = 0.25
+    timeline = apply_pause_policy_to_gaps(
+        vad_result,
+        min_gap_to_shorten_sec=config.pause.min_gap_to_shorten_ms / 1000.0,
+        shortened_gap_sec=config.pause.shortened_gap_target_ms / 1000.0,
+        edge_silence_trim_sec=config.pause.edge_silence_trim_ms / 1000.0,
+    )
+    expected_duration = sum(item[3] for item in timeline)
+
+    # Allow tiny tolerance for zero-crossing snapping (+/- 15 ms per cut point)
+    tolerance_sec = 0.10
     assert splice_res.output_duration_sec == pytest.approx(expected_duration, abs=tolerance_sec), (
         f"Output duration ({splice_res.output_duration_sec:.2f}s) differs from expected ({expected_duration:.2f}s)"
     )

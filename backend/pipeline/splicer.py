@@ -62,9 +62,11 @@ def snap_to_zero_crossing(
         idx2 = min(total_len - 1, idx1 + 1)
         return idx1 if abs(audio[idx1]) <= abs(audio[idx2]) else idx2
 
-    # 2. If no exact sign change, pick the minimum absolute amplitude sample
-    min_idx_in_window = int(np.argmin(np.abs(window)))
-    return start + min_idx_in_window
+    # 2. If no exact sign change, pick the minimum absolute amplitude sample closest to target_idx
+    min_val = np.min(np.abs(window))
+    candidates = np.where(np.abs(window) == min_val)[0]
+    best_candidate = candidates[np.argmin(np.abs((start + candidates) - target_idx))]
+    return start + int(best_candidate)
 
 
 def crossfade_equal_power(
