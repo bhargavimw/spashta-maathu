@@ -1,0 +1,24 @@
+# Kannada Pause Remover & Stammer Cleaner — Python Dependencies
+# agents.md: Python 3.10+, Pin versions in requirements.txt
+
+# Testing & Dev
+pytest==8.3.4
+
+# Audio Processing & Scientific Computation (agents.md: 16 kHz mono float32)
+numpy==1.26.4
+scipy==1.13.1
+soundfile==0.12.1
+librosa==0.10.2.post1
+
+# VAD, ASR, Forced Alignment (Sequential GPU/CPU execution)
+torch>=2.2.0
+torchaudio>=2.2.0
+faster-whisper>=1.0.3
+
+# LLM APIs & Integration
+google-genai>=0.1.1
+requests>=2.32.3
+
+# Configuration & Environment
+python-dotenv>=1.0.1
+pydantic>=2.8.2
