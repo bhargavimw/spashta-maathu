@@ -11,17 +11,28 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
-import torch
-from silero_vad import get_speech_timestamps, load_silero_vad
 
 from backend.config import config
 
 logger = logging.getLogger("kannada_cleaner.vad")
 
-_CACHED_VAD_MODEL: Optional[torch.nn.Module] = None
+_CACHED_VAD_MODEL: Optional[Any] = None
+
+
+def _require_torch() -> Any:
+    """Import torch and silero_vad lazily; raises ImportError with a helpful message."""
+    try:
+        import torch  # noqa: PLC0415
+        from silero_vad import get_speech_timestamps, load_silero_vad  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "torch and silero_vad are required for VAD inference. "
+            "Install them with: pip install torch silero-vad"
+        ) from exc
+    return torch, get_speech_timestamps, load_silero_vad
 
 
 @dataclass(frozen=True)
@@ -71,11 +82,12 @@ class VADResult:
     total_samples: int
 
 
-def get_vad_model() -> torch.nn.Module:
+def get_vad_model() -> Any:
     """Load and cache the Silero VAD model on CPU."""
     global _CACHED_VAD_MODEL
     if _CACHED_VAD_MODEL is None:
         logger.info("Loading Silero VAD model onto CPU")
+        _torch, _get_speech_timestamps, load_silero_vad = _require_torch()
         model = load_silero_vad(onnx=False)
         _CACHED_VAD_MODEL = model
     return _CACHED_VAD_MODEL
@@ -204,6 +216,7 @@ def detect_speech_regions(
         raise ValueError("Audio array is empty.")
 
     vad_threshold = threshold if threshold is not None else config.models.vad_threshold
+    torch, get_speech_timestamps, _load_silero_vad = _require_torch()
     model = get_vad_model()
 
     # Convert to torch tensor
