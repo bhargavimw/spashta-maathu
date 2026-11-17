@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend.config import config, setup_logging
@@ -163,3 +164,10 @@ def get_audio_file(filename: str) -> FileResponse:
         media_type="audio/wav",
         filename=safe_name,
     )
+
+
+# Serve built React frontend if available
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+

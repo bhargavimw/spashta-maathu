@@ -98,3 +98,11 @@ def test_get_audio_not_found() -> None:
     response = client.get("/audio/nonexistent_audio_file.wav")
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
+
+
+def test_get_root_serves_frontend() -> None:
+    """GET / serves the built React single-page application."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "<!DOCTYPE html>" in response.text or "Kannada" in response.text
+
