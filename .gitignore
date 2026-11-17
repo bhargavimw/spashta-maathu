@@ -67,3 +67,12 @@ htmlcov/
 *.swp
 *.swo
 .DS_Store
+
+# Excluded planning and meta docs
+agents.md
+AGENTS.md
+plan.md
+PLAN.md
+PROGRESS.md
+progress.md
+
