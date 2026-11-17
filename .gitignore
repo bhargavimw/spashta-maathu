@@ -1,3 +1,4 @@
+
 # Python
 __pycache__/
 *.py[cod]
@@ -34,7 +35,7 @@ env/
 *.pem
 *.key
 
-# Data directories (plan.md section 8: not committed)
+# Data directories
 data/raw/*
 !data/raw/.gitkeep
 data/synthetic/*
@@ -42,7 +43,7 @@ data/synthetic/*
 data/holdout/*
 !data/holdout/.gitkeep
 
-# Audio & Models (agents.md: Never commit audio, model weights)
+# Audio & Models
 *.wav
 *.mp3
 *.flac
@@ -76,4 +77,5 @@ PLAN.md
 PROGRESS.md
 progress.md
 
+# Frontend dependencies
 node_modules/
