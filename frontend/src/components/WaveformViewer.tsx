@@ -31,22 +31,21 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(20);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Initialize Regions Plugin
     const wsRegions = RegionsPlugin.create();
     regionsPluginRef.current = wsRegions;
 
-    // Initialize WaveSurfer
     const ws = WaveSurfer.create({
       container: containerRef.current,
       waveColor,
       progressColor,
       cursorColor: '#f43f5e',
       cursorWidth: 2,
-      height: 90,
+      height: 80,
       barWidth: 2,
       barGap: 1,
       barRadius: 2,
@@ -57,9 +56,9 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
     ws.load(audioUrl);
 
     ws.on('ready', () => {
+      setLoaded(true);
       setDuration(ws.getDuration());
 
-      // Add red overlay regions for removed pauses/stammers
       if (removedRegions.length > 0) {
         wsRegions.clearRegions();
         removedRegions.forEach((reg, index) => {
@@ -67,7 +66,7 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
             id: `cut-${index}`,
             start: reg.start,
             end: reg.end,
-            color: 'rgba(239, 68, 68, 0.45)', // Red overlay
+            color: 'rgba(239, 68, 68, 0.45)',
             drag: false,
             resize: false,
             content: document.createElement('div'),
@@ -101,7 +100,7 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
 
   // Sync external seek time if provided
   useEffect(() => {
-    if (syncTime !== undefined && wavesurferRef.current) {
+    if (syncTime !== undefined && wavesurferRef.current && loaded) {
       const current = wavesurferRef.current.getCurrentTime();
       if (Math.abs(current - syncTime) > 0.1) {
         const dur = wavesurferRef.current.getDuration();
@@ -110,7 +109,7 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
         }
       }
     }
-  }, [syncTime]);
+  }, [syncTime, loaded]);
 
   const togglePlay = () => {
     if (wavesurferRef.current) {
@@ -141,54 +140,54 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
   };
 
   return (
-    <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4">
+    <div className="glass p-4">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-slate-200">{title}</span>
           {removedRegions.length > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />
-              {removedRegions.length} cuts marked in red
+            <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              {removedRegions.length} cuts marked
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
           <span>{formatTime(currentTime)}</span>
-          <span>/</span>
+          <span className="mx-1 text-slate-600">/</span>
           <span>{formatTime(duration)}</span>
         </div>
       </div>
 
-      {/* WaveSurfer Container */}
-      <div ref={containerRef} className="rounded-lg overflow-hidden bg-slate-900/60 p-1 mb-3" />
+      <div ref={containerRef} className="rounded-lg overflow-hidden bg-slate-950/60 p-1 mb-3 border border-slate-800/50" />
 
-      {/* Controls Bar */}
       <div className="flex items-center justify-between pt-1 text-slate-300">
         <div className="flex items-center gap-2">
           <button
             onClick={togglePlay}
-            className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={isPlaying ? 'Pause' : 'Play'}
+            disabled={!loaded}
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           </button>
           <button
             onClick={handleRestart}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title="Restart to beginning"
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Restart"
+            disabled={!loaded}
           >
             <RotateCcw className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => handleZoom(-15)}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             title="Zoom out"
           >
-            <ZoomOut className="w-3.5 h-3.5" />
+            <ZoomOut className="w-3 h-3" />
           </button>
           <span className="text-xs font-mono text-slate-500 px-1">{zoomLevel}px/s</span>
           <button
@@ -196,7 +195,7 @@ export const WaveformViewer: React.FC<WaveformViewerProps> = ({
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             title="Zoom in"
           >
-            <ZoomIn className="w-3.5 h-3.5" />
+            <ZoomIn className="w-3 h-3" />
           </button>
         </div>
       </div>

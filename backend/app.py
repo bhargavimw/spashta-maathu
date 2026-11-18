@@ -97,6 +97,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     components: Dict[str, bool]
+    stages: Dict[str, bool]
 
 
 class ProcessResponse(BaseModel):
@@ -131,6 +132,15 @@ def health_check() -> HealthResponse:
         components={
             "vad": _vad_ready(),
             "asr": _asr_ready(),
+            "classifier": _classifier_ready(),
+        },
+        stages={
+            "ingest": True,
+            "vad": _vad_ready(),
+            "gap_rules": True,
+            "splicer": True,
+            "asr": _asr_ready(),
+            "align": False,  # Stage 3 forced alignment not yet implemented (M3)
             "classifier": _classifier_ready(),
         },
     )
