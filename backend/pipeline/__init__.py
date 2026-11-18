@@ -1,7 +1,7 @@
 
 """Pipeline stages for audio processing, VAD, ASR, alignment, classification, and splicing."""
 
-__all__ = ["process", "Result", "RemovedRegion"]
+__all__ = ["process", "process_full", "Result", "RemovedRegion", "SegmentDiff"]
 
 
 def __getattr__(name):

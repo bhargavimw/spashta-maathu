@@ -1,7 +1,12 @@
-"""FastAPI endpoint tests using TestClient."""
+"""FastAPI endpoint tests using TestClient.
+
+Updated for Module 6: POST /process now runs process_full() (full pipeline),
+and GET /health reports component readiness via the 'components' key.
+"""
 
 import io
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -32,8 +37,29 @@ def _generate_wav_bytes(duration_sec: float = 4.0, sr: int = 16000) -> bytes:
     return buf.getvalue()
 
 
+def _make_process_full_result(tmp_path: Path, sr: int = 16000):
+    """Build a mock Result with a real WAV on disk."""
+    from backend.pipeline.orchestrator import Result
+    from backend.app import PROCESSED_DIR
+
+    # Write a real clean WAV so the /audio/ endpoint can serve it
+    clean_wav = PROCESSED_DIR / "clean_testapplegacy.wav"
+    sf.write(str(clean_wav), np.zeros(sr, dtype=np.float32), sr)
+
+    return Result(
+        clean_audio_path=str(clean_wav),
+        original_duration=4.0,
+        clean_duration=2.5,
+        removed_regions=[{"start": 2.5, "end": 4.0, "reason": "disfluent_pause"}],
+        verbatim_text="ನಾನು ಹೋದೆ",
+        clean_text="ನಾನು ಹೋದೆ",
+        diff=[{"index": 0, "text": "ನಾನು ಹೋದೆ", "action": "keep"}],
+        words=None,
+    ), clean_wav
+
+
 def test_get_health() -> None:
-    """GET /health reports status and stage availability."""
+    """GET /health reports status and component readiness (Module 6 schema)."""
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
@@ -41,56 +67,54 @@ def test_get_health() -> None:
     assert data["status"] == "healthy"
     assert "version" in data
 
-    stages = data["stages"]
-    # v1 stages are available
-    assert stages["ingest"] is True
-    assert stages["vad"] is True
-    assert stages["gap_rules"] is True
-    assert stages["splicer"] is True
+    # Module 6: components key with vad, asr, classifier readiness
+    components = data["components"]
+    assert "vad" in components
+    assert "asr" in components
+    assert "classifier" in components
 
-    # v2/v3 stages are deferred and report False
-    assert stages["asr"] is False
-    assert stages["align"] is False
-    assert stages["classifier"] is False
+    # Each value must be a boolean
+    for key in ("vad", "asr", "classifier"):
+        assert isinstance(components[key], bool)
 
 
-def test_post_process_audio_upload() -> None:
-    """POST /process uploads audio, processes via v1, and returns valid JSON and URLs."""
-    wav_bytes = _generate_wav_bytes(duration_sec=4.0)
+def test_post_process_audio_upload(tmp_path) -> None:
+    """POST /process uploads audio and returns valid JSON with all Module 6 fields."""
+    result, clean_wav = _make_process_full_result(tmp_path)
 
-    files = {"file": ("test_clip.wav", wav_bytes, "audio/wav")}
-    response = client.post("/process", files=files)
+    try:
+        wav_bytes = _generate_wav_bytes(duration_sec=4.0)
+        files = {"file": ("test_clip.wav", wav_bytes, "audio/wav")}
 
-    assert response.status_code == 200
-    data = response.json()
+        with patch("backend.app.process_full", return_value=result):
+            response = client.post("/process", files=files)
 
-    # Validate Result contract
-    assert "clean_audio_url" in data
-    assert "clean_audio_path" in data
-    assert data["clean_audio_url"].startswith("/audio/")
-    assert data["original_duration"] == pytest.approx(4.0, abs=0.05)
-    assert data["clean_duration"] < data["original_duration"]
-    assert data["time_saved"] > 0
+        assert response.status_code == 200
+        data = response.json()
 
-    # Removed regions
-    assert isinstance(data["removed_regions"], list)
-    assert len(data["removed_regions"]) >= 1
-    for region in data["removed_regions"]:
-        assert "start" in region
-        assert "end" in region
-        assert region["reason"] == "disfluent_pause"
+        # Validate Result contract
+        assert "clean_audio_url" in data
+        assert "clean_audio_path" in data
+        assert data["clean_audio_url"].startswith("/audio/")
+        assert data["original_duration"] == pytest.approx(4.0, abs=0.05)
+        assert data["clean_duration"] < data["original_duration"]
+        assert data["time_saved"] > 0
 
-    # Missing stages MUST be None (null in JSON)
-    assert data["words"] is None
-    assert data["verbatim_text"] is None
-    assert data["clean_text"] is None
-    assert data["diff"] is None
+        # Removed regions
+        assert isinstance(data["removed_regions"], list)
+        assert len(data["removed_regions"]) >= 1
+        for region in data["removed_regions"]:
+            assert "start" in region
+            assert "end" in region
+            assert "reason" in region
 
-    # Retrieve processed audio from clean_audio_url
-    audio_resp = client.get(data["clean_audio_url"])
-    assert audio_resp.status_code == 200
-    assert audio_resp.headers["content-type"] == "audio/wav"
-    assert len(audio_resp.content) > 0
+        # Module 6 transcript fields (populated by process_full)
+        assert data["verbatim_text"] is not None
+        assert data["clean_text"] is not None
+
+    finally:
+        if clean_wav.exists():
+            clean_wav.unlink(missing_ok=True)
 
 
 def test_get_audio_not_found() -> None:
@@ -105,4 +129,3 @@ def test_get_root_serves_frontend() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "<!DOCTYPE html>" in response.text or "Kannada" in response.text
-

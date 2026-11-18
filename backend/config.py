@@ -68,7 +68,7 @@ class ModelConfig:
         default_factory=lambda: os.getenv("LOCAL_LLM_HOST", "http://localhost:11434")
     )
 
-    # ASR (Whole-file Kannada transcription)
+    # ASR (Whole-file Kannada transcription — legacy IndicConformer path)
     asr_model_id: str = field(
         default_factory=lambda: os.getenv(
             "ASR_MODEL_ID", "ai4bharat/indicconformer_stt_kn_hybrid"
@@ -76,6 +76,11 @@ class ModelConfig:
     )
     asr_backend: str = field(
         default_factory=lambda: os.getenv("ASR_BACKEND", "indicconformer")
+    )
+
+    # ASR — Faster-Whisper segment-based transcription (Module 5)
+    asr_whisper_model_id: str = field(
+        default_factory=lambda: os.getenv("WHISPER_MODEL_ID", "large-v3")
     )
 
     # Forced Alignment
