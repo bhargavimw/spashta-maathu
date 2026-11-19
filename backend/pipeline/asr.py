@@ -92,10 +92,38 @@ def get_asr_model(
         model.load_adapter("kan")
         model.eval()
 
+        # Startup assertion: kan adapter must be loaded and tokenizer must
+        # contain Kannada characters; fail loudly if not.
+        vocab = processor.tokenizer.get_vocab()
+        kan_chars = [c for c in vocab if "\u0C80" <= c <= "\u0CFF"]
+        if not kan_chars:
+            raise RuntimeError(
+                "Kannada adapter not loaded: tokenizer vocab has no Kannada "
+                "characters (U+0C80–U+0CFF). Check that set_target_lang('kan') "
+                "and load_adapter('kan') ran correctly for model '%s'."
+                % model_id
+            )
+        logger.info(
+            "Kannada adapter verified: %d Kannada characters in vocab",
+            len(kan_chars),
+        )
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cuda":
             model = model.half()
         model = model.to(device)
+
+        # Print emissions.max() once at startup: must be <= 0 after log_softmax.
+        _dummy = torch.zeros(1, 1600, dtype=torch.float32, device=device)
+        with torch.no_grad():
+            _logits = model(_dummy).logits
+            _em = torch.nn.functional.log_softmax(_logits, dim=-1)
+        print(f"[ASR startup] emissions.max() = {float(_em.max()):.6f} (must be <= 0)")
+        if float(_em.max()) > 0.0:
+            raise RuntimeError(
+                f"emissions.max() = {float(_em.max()):.6f} > 0; "
+                "log_softmax not applied correctly."
+            )
 
         _CACHED_PROCESSOR = processor
         _CACHED_MODEL = model
@@ -234,6 +262,7 @@ def _align_transcript(
                 start_s = start_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
                 end_s = end_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
                 confidence = float(np.mean([s.score for s in cur_spans]))
+                confidence = float(np.exp(confidence))  # log-prob -> 0-1
                 words.append((word_text, start_s, end_s, confidence))
                 cur_spans = []
         else:
@@ -250,6 +279,7 @@ def _align_transcript(
         start_s = start_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
         end_s = end_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
         confidence = float(np.mean([s.score for s in cur_spans]))
+        confidence = float(np.exp(confidence))  # log-prob -> 0-1
         words.append((word_text, start_s, end_s, confidence))
 
     return words
@@ -353,9 +383,19 @@ def transcribe_vad_segments(
                 "start_s": round(w[1] + seg_start_offset, 6),
                 "end_s": round(w[2] + seg_start_offset, 6),
                 "confidence": w[3],
+                "frames": max(
+                    1,
+                    round((w[2] - w[1]) * SAMPLE_RATE / FRAME_STRIDE_SAMPLES),
+                ),
             }
             for w in words
         ]
+        for w in words_with_offset:
+            w["suspect"] = w["frames"] < 3  # < 3 CTC frames = 60 ms
+
+        # Frame / token counts for this segment.
+        num_frames = emissions.shape[1] if emissions.dim() == 3 else emissions.shape[0]
+        num_tokens = len(words)
 
         results.append(
             {
@@ -365,6 +405,8 @@ def transcribe_vad_segments(
                 "end": seg.end_sec,
                 "gap_after": gap_after,
                 "words": words_with_offset,
+                "num_frames": num_frames,
+                "num_tokens": num_tokens,
             }
         )
 

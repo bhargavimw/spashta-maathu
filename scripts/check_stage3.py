@@ -7,8 +7,6 @@ Usage:
 import sys
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.pipeline.asr import reset_asr_model, transcribe_vad_segments
@@ -42,13 +40,36 @@ def main() -> None:
 
     print(f"\nFile: {wav_path.name}")
     print(f"VAD segments: {len(vad.segments)}")
-    for seg in result:
-        print(f"\nSegment {seg['index']}: {seg['start']:.3f}s - {seg['end']:.3f}s")
+
+    result_by_index = {seg["index"]: seg for seg in result}
+
+    for seg_idx, vad_seg in enumerate(vad.segments):
+        seg = result_by_index.get(seg_idx)
+
+        print(f"\n=== VAD segment {seg_idx}: {vad_seg.start_sec:.3f}s - {vad_seg.end_sec:.3f}s ===")
+
+        if seg is None or not seg.get("text", "").strip():
+            print("  (no speech decoded)")
+            continue
+
         print(f"Transcript: {seg['text']}")
-        print(f"{'Word':<15} {'start_s':>9} {'end_s':>9} {'conf':>7}")
-        print("-" * 45)
+        print(
+            f"  frames={seg['num_frames']} tokens={seg['num_tokens']} "
+            f"(tokens/frames ratio: {seg['num_tokens']/seg['num_frames']:.2f})"
+        )
+        print(
+            f"  {'Word':<18} {'start_s':>9} {'end_s':>9} {'conf':>7}  frames  flag"
+        )
+        print(f"  {'-'*18} {'-'*9} {'-'*9} {'-'*7}  {'-'*6}  {'-'*4}")
         for w in seg.get("words", []):
-            print(f"{w['word']:<15} {w['start_s']:>9.3f} {w['end_s']:>9.3f} {w['confidence']:>7.3f}")
+            flag = "SUSPECT" if w.get("suspect", False) else ""
+            print(
+                f"  {w['word']:<18} {w['start_s']:>9.3f} {w['end_s']:>9.3f} "
+                f"{w['confidence']:>7.3f}  {w['frames']:>6}  {flag}"
+            )
+
+    if not result:
+        print("\n(no ASR segments produced)")
 
 
 if __name__ == "__main__":

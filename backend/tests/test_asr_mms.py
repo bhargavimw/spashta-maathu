@@ -76,8 +76,8 @@ def _make_mock_processor_model(
     processor.tokenizer.__getitem__ = MagicMock(
         side_effect=lambda ch: vocab.get(ch, vocab["<unk>"])
     )
-    processor.tokenizer.id_to_token.side_effect = lambda tid: id_to_token.get(
-        int(tid), "<unk>"
+    processor.tokenizer.convert_ids_to_tokens.side_effect = (
+        lambda tids: [id_to_token.get(int(t), "x") for t in tids]
     )
 
     def fake_tokenize(text, return_tensors=None):
