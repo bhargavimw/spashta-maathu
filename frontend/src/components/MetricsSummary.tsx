@@ -1,10 +1,19 @@
 import React from 'react';
-import { Download, Clock, Scissors, TrendingDown } from 'lucide-react';
+import { Download, Clock, Scissors, TrendingDown, AlertTriangle } from 'lucide-react';
 import { ProcessResult } from '../types';
 
 interface MetricsSummaryProps {
   result: ProcessResult;
 }
+
+const TAG_LABELS: Record<string, string> = {
+  PAUSE: 'Pauses',
+  FILLER: 'Fillers',
+  REP: 'Repetitions',
+  FALSESTART: 'False Starts',
+  PROL: 'Prolongations',
+  BLOCK: 'Blocks',
+};
 
 const METRICS = [
   {
@@ -30,9 +39,17 @@ const METRICS = [
     suffix: 's',
   },
   {
+    label: 'Disfluency Tags',
+    valueKey: 'tags.length',
+    color: 'text-rose-400',
+    icon: AlertTriangle,
+    suffix: '',
+    count: true,
+  },
+  {
     label: 'Pauses Capped',
     valueKey: 'removed_regions.length',
-    color: 'text-rose-400',
+    color: 'text-slate-400',
     icon: Scissors,
     suffix: '',
     count: true,
@@ -78,7 +95,11 @@ export const MetricsSummary: React.FC<MetricsSummaryProps> = ({ result }) => {
             {METRICS.map((m) => {
               let value: React.ReactNode;
               if (m.count) {
-                value = result.removed_regions.length;
+                if (m.label === 'Disfluency Tags') {
+                  value = result.tags?.length ?? 0;
+                } else {
+                  value = result.removed_regions.length;
+                }
               } else if (m.valueKey === 'time_saved') {
                 value = result.time_saved.toFixed(2);
               } else {

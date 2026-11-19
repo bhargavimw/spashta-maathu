@@ -22,8 +22,11 @@ import numpy as np
 import soundfile as sf
 
 from backend.config import AppConfig, config as default_config
+from backend.pipeline.clean_text import build_clean_text_from_segments
 from backend.pipeline.ingest import ingest_audio
 from backend.pipeline.splicer import apply_pause_policy_to_gaps, splice_audio
+from backend.pipeline.stitch import stitch_audio_with_tags
+from backend.pipeline.tagger import tag_all
 from backend.pipeline.vad import detect_speech_regions
 
 logger = logging.getLogger("kannada_cleaner.orchestrator")
@@ -362,9 +365,27 @@ def process_full(
         )
 
     # Verbatim transcript: every ASR segment that has text, in chronological order.
-    verbatim_text = " ".join(s["text"] for s in usable_segments)
+    verbatim_text = " ".join(s.get("text", "") for s in usable_segments)
 
-    # ── Stage 3: Classifier ────────────────────────────────────────────────
+    # ── Stage 4: Tagger ────────────────────────────────────────────────────
+    # Tag disfluencies using word-level timestamps + VAD gaps (SPEC.md §4).
+    logger.info(
+        "Stage 4: Running disfluency tagger on %d segments", len(asr_segments)
+    )
+    all_words: List[dict] = []
+    for seg in asr_segments:
+        for w in seg.get("words", []):
+            w_copy = dict(w)
+            all_words.append(w_copy)
+
+    tags = tag_all(all_words, vad_result, inp_path.name)
+
+    # ── Stage 6: Clean text ────────────────────────────────────────────────
+    # Build clean text deterministically from verbatim + tags (SPEC.md §6).
+    logger.info("Stage 6: Building clean text from tags")
+    clean_text = build_clean_text_from_segments(asr_segments, tags)
+
+    # ── Stage 3: Classifier (LLM, for diff/comparison) ─────────────────────
     logger.info(
         "Stage 3: Running disfluency classifier on %d segments", len(usable_segments)
     )
@@ -376,30 +397,26 @@ def process_full(
             api_key=api_key,
             model=cfg.models.gemini_model_id,
         )
-        # classify_segments() validates Gemini output and falls back to the
-        # rule-based policy itself; re-check here so that anything handed to the
-        # splicer is guaranteed consistent with *this* input.
         classifier_output.validate_against_input(classifier_input)
     except ValueError as exc:  # pydantic.ValidationError is a ValueError
         raise RuntimeError(f"Stage 3 (classifier) failed: {exc}") from exc
 
-    # ── Stage 5A: Classifier-guided Splicer ───────────────────────────────
+    # ── Stage 7: Stitch audio using tags ───────────────────────────────────
+    # Remove tagged disfluency spans and stitch remaining speech (SPEC.md §7).
     logger.info(
-        "Stage 5A: Classifier-guided splicing – keeping %d / %d segments",
-        len(classifier_output.kept_segments),
-        len(usable_segments),
+        "Stage 7: Stitching audio – removing %d tagged spans",
+        len(tags),
     )
     try:
-        splice_result = splice_audio(
+        splice_result = stitch_audio_with_tags(
             audio=audio,
-            vad_result=vad_result,
+            tags=tags,
+            sample_rate=sr,
             crossfade_ms=cfg.pause.crossfade_ms,
             snap_window_ms=cfg.audio.snap_window_ms,
-            classifier_input=classifier_input,
-            classifier_output=classifier_output,
         )
     except ValueError as exc:
-        raise RuntimeError(f"Stage 5A (splicer) failed: {exc}") from exc
+        raise RuntimeError(f"Stage 7 (stitch) failed: {exc}") from exc
 
     # Write cleaned audio to disk
     sf.write(str(clean_path), splice_result.audio, sr)
@@ -410,6 +427,18 @@ def process_full(
     kept_set = set(classifier_output.kept_segments)
 
     removed_entries: List[RemovedRegion] = []
+
+    # Tag-based removed regions (time-based disfluency spans)
+    for tag in tags:
+        removed_entries.append(
+            RemovedRegion(
+                start=float(tag.start_s),
+                end=float(tag.end_s),
+                reason=tag.tag.lower(),
+            )
+        )
+
+    # Classifier-based removed segments
     for removed_seg in classifier_output.removed:
         src = source_by_index[removed_seg.index]
         removed_entries.append(
@@ -429,7 +458,7 @@ def process_full(
                 segment_index=seg["index"],
             )
         )
-    removed_entries.sort(key=lambda r: r.segment_index)
+    removed_entries.sort(key=lambda r: r.start)
     removed_regions_list = [r.to_dict() for r in removed_entries]
 
     diff_entries: List[SegmentDiff] = []
@@ -456,13 +485,25 @@ def process_full(
                 )
             )
 
+    # Flatten all word-level timestamps for Result.words
+    # (Stage 3 ASR already adds segment start offset to word timestamps)
+    all_words_with_offset: List[Dict[str, Any]] = []
+    for seg in asr_segments:
+        for w in seg.get("words", []):
+            w_copy = dict(w)
+            if "start_s" in w_copy:
+                w_copy["start_s"] = round(float(w_copy["start_s"]), 6)
+            if "end_s" in w_copy:
+                w_copy["end_s"] = round(float(w_copy["end_s"]), 6)
+            all_words_with_offset.append(w_copy)
+
     return Result(
         clean_audio_path=str(clean_path),
         original_duration=splice_result.original_duration_sec,
-        clean_duration=splice_result.output_duration_sec,
+        clean_duration=splice_result.clean_duration,
         removed_regions=removed_regions_list,
-        words=None,                              # alignment not yet implemented
+        words=all_words_with_offset,
         verbatim_text=verbatim_text,
-        clean_text=classifier_output.clean_text,
+        clean_text=clean_text,
         diff=[d.to_dict() for d in diff_entries],
     )

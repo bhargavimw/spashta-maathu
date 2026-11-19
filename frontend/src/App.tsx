@@ -102,7 +102,7 @@ export const App: React.FC = () => {
                 <BarChart3 className="w-3 h-3 text-slate-500" /> V1 pipeline active
               </span>
               <span className="px-4 py-1.5 rounded-xl bg-slate-900/50 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
-                <Wand2 className="w-3 h-3 text-slate-500" />{' ASR & LLM coming in M3–M5'}
+                <Wand2 className="w-3 h-3 text-slate-500" />{' ASR & tagger live (M3–M5)'}
               </span>
             </div>
           </section>
@@ -121,6 +121,7 @@ export const App: React.FC = () => {
                 verbatimText={result.verbatim_text}
                 cleanText={result.clean_text}
                 diff={result.diff}
+                tags={result.tags}
               />
             </div>
           </section>
