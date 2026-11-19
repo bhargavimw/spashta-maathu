@@ -1,9 +1,12 @@
 """Check Stage 3 (ASR + forced alignment) on one WAV file.
 
+Writes results to <wav_stem>_stage3.json in the same directory as the WAV.
+
 Usage:
     python scripts/check_stage3.py <wav_path> [script_text]
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -38,6 +41,21 @@ def main() -> None:
         script_texts=script_texts,
     )
 
+    # Write JSON output (not committed to repo).
+    json_path = wav_path.with_suffix(".stage3.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "file": wav_path.name,
+                "vad_segments": len(vad.segments),
+                "segments": result,
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+    print(f"\nJSON written to: {json_path}")
+
     print(f"\nFile: {wav_path.name}")
     print(f"VAD segments: {len(vad.segments)}")
 
@@ -58,14 +76,16 @@ def main() -> None:
             f"(tokens/frames ratio: {seg['num_tokens']/seg['num_frames']:.2f})"
         )
         print(
-            f"  {'Word':<18} {'start_s':>9} {'end_s':>9} {'conf':>7}  frames  flag"
+            f"  {'Word':<18} {'spike_s':>9} {'spike_e':>9} "
+            f"{'start_s':>9} {'end_s':>9} {'conf':>7}  frames  flag"
         )
-        print(f"  {'-'*18} {'-'*9} {'-'*9} {'-'*7}  {'-'*6}  {'-'*4}")
+        print(f"  {'-'*18} {'-'*9} {'-'*9} {'-'*9} {'-'*9} {'-'*7}  {'-'*6}  {'-'*4}")
         for w in seg.get("words", []):
             flag = "SUSPECT" if w.get("suspect", False) else ""
             print(
-                f"  {w['word']:<18} {w['start_s']:>9.3f} {w['end_s']:>9.3f} "
-                f"{w['confidence']:>7.3f}  {w['frames']:>6}  {flag}"
+                f"  {w['word']:<18} {w['spike_start_s']:>9.3f} {w['spike_end_s']:>9.3f} "
+                f"{w['start_s']:>9.3f} {w['end_s']:>9.3f} {w['confidence']:>7.3f}  "
+                f"{w['frames']:>6}  {flag}"
             )
 
     if not result:

@@ -142,6 +142,50 @@ def reset_asr_model() -> None:
         torch.cuda.empty_cache()
 
 
+def _rms_per_frame(audio_chunk: np.ndarray, frame_stride: int = FRAME_STRIDE_SAMPLES) -> np.ndarray:
+    """Compute RMS energy per 20 ms frame of the segment audio."""
+    num_frames = len(audio_chunk) // frame_stride
+    if num_frames == 0:
+        return np.zeros(0, dtype=np.float32)
+    rms = np.zeros(num_frames, dtype=np.float32)
+    for i in range(num_frames):
+        frame = audio_chunk[i * frame_stride:(i + 1) * frame_stride]
+        rms[i] = float(np.sqrt(np.mean(frame ** 2)))
+    return rms
+
+
+def _extend_word_boundaries(
+    spike_starts: List[int],
+    spike_ends: List[int],
+    rms: np.ndarray,
+    threshold: float,
+) -> List[Tuple[int, int]]:
+    """Grow each word into adjacent blank frames while 20 ms RMS > threshold.
+
+    Never crosses into the neighbouring word's spike frames.
+    threshold is relative to the segment median RMS (caller passes threshold already scaled).
+    """
+    num_frames = len(rms)
+    extended: List[Tuple[int, int]] = []
+    for i in range(len(spike_starts)):
+        ws, we = spike_starts[i], spike_ends[i]
+
+        # Extend start backwards into blank frames.
+        es = ws
+        prev_end = spike_ends[i - 1] if i > 0 else 0
+        while es > prev_end and es > 0 and rms[es - 1] > threshold:
+            es -= 1
+
+        # Extend end forwards into blank frames.
+        ee = we
+        next_start = spike_starts[i + 1] if i < len(spike_starts) - 1 else num_frames
+        while ee < next_start and ee < num_frames - 1 and rms[ee] > threshold:
+            ee += 1
+
+        extended.append((es, ee))
+    return extended
+
+
 def _check_unk_chars(processor: Any, text: str, context: str = "") -> List[str]:
     """Report characters that map to the tokenizer's UNK token."""
     vocab = processor.tokenizer.get_vocab()
@@ -206,7 +250,8 @@ def _align_transcript(
     emissions: torch.Tensor,
     text: str,
     device: str,
-) -> List[Tuple[str, float, float, float]]:
+    audio_chunk: Optional[np.ndarray] = None,
+) -> List[Tuple[str, float, float, float, float, float, int, int]]:
     """Force-align a transcript string against CTC emissions.
 
     Uses torchaudio.functional.forced_align + merge_tokens per SPEC.md §3.
@@ -214,7 +259,10 @@ def _align_transcript(
     delimiter token preserves word boundaries through alignment. Before
     aligning, checks that no characters map to UNK.
 
-    Returns list of (word, start_s, end_s, confidence).
+    Returns list of (word, spike_start_s, spike_end_s, start_s, end_s,
+    confidence, spike_start_frame, spike_end_frame).
+    start_s/end_s are RMS-extended boundaries; spike_start_s/spike_end_s are
+    raw CTC frame boundaries.
     """
     blank_id = processor.tokenizer.pad_token_id
     vocab = processor.tokenizer.get_vocab()
@@ -245,9 +293,7 @@ def _align_transcript(
     )
 
     # Group token spans into words using "|" delimiter.
-    # Each TokenSpan corresponds to one character; consecutive non-delimiter
-    # spans form a word.
-    words: List[Tuple[str, float, float, float]] = []
+    words: List[Tuple[str, float, float, float, float, float, int, int]] = []
     cur_spans: List[Any] = []
 
     for ts in token_spans:
@@ -257,13 +303,16 @@ def _align_transcript(
                     processor.tokenizer.convert_ids_to_tokens([int(s.token)])[0]
                     for s in cur_spans
                 )
-                start_frame = cur_spans[0].start
-                end_frame = cur_spans[-1].end
-                start_s = start_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
-                end_s = end_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
+                spike_start_frame = cur_spans[0].start
+                spike_end_frame = cur_spans[-1].end
+                spike_start_s = spike_start_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
+                spike_end_s = spike_end_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
                 confidence = float(np.mean([s.score for s in cur_spans]))
                 confidence = float(np.exp(confidence))  # log-prob -> 0-1
-                words.append((word_text, start_s, end_s, confidence))
+                words.append(
+                    (word_text, spike_start_s, spike_end_s, 0.0, 0.0,
+                     confidence, spike_start_frame, spike_end_frame)
+                )
                 cur_spans = []
         else:
             cur_spans.append(ts)
@@ -274,13 +323,38 @@ def _align_transcript(
             processor.tokenizer.convert_ids_to_tokens([int(s.token)])[0]
             for s in cur_spans
         )
-        start_frame = cur_spans[0].start
-        end_frame = cur_spans[-1].end
-        start_s = start_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
-        end_s = end_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
+        spike_start_frame = cur_spans[0].start
+        spike_end_frame = cur_spans[-1].end
+        spike_start_s = spike_start_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
+        spike_end_s = spike_end_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
         confidence = float(np.mean([s.score for s in cur_spans]))
         confidence = float(np.exp(confidence))  # log-prob -> 0-1
-        words.append((word_text, start_s, end_s, confidence))
+        words.append(
+            (word_text, spike_start_s, spike_end_s, 0.0, 0.0,
+             confidence, spike_start_frame, spike_end_frame)
+        )
+
+    # Compute RMS-extended boundaries if audio provided.
+    if audio_chunk is not None and words:
+        rms = _rms_per_frame(audio_chunk)
+        if len(rms) > 0:
+            segment_median = float(np.median(rms))
+            threshold = 0.3 * segment_median  # 30% of median RMS
+
+            spike_starts = [w[6] for w in words]
+            spike_ends = [w[7] for w in words]
+            extended = _extend_word_boundaries(spike_starts, spike_ends, rms, threshold)
+
+            # Rebuild words with extended boundaries.
+            words_extended: List[Tuple[str, float, float, float, float, float, int, int]] = []
+            for i, w in enumerate(words):
+                es_frame, ee_frame = extended[i]
+                es_s = es_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
+                ee_s = ee_frame * FRAME_STRIDE_SAMPLES / SAMPLE_RATE
+                words_extended.append(
+                    (w[0], w[1], w[2], es_s, ee_s, w[5], w[6], w[7])
+                )
+            words = words_extended
 
     return words
 
@@ -360,13 +434,13 @@ def transcribe_vad_segments(
 
         if script is not None:
             # Mode (b): forced_align known script directly; no decoding.
-            words = _align_transcript(processor, emissions, script, device)
+            words = _align_transcript(processor, emissions, script, device, audio_chunk)
             text = script
         else:
             # Mode (a): free ASR - greedy decode then forced_align same emissions.
             text = _greedy_decode(processor, emissions)
             if text.strip():
-                words = _align_transcript(processor, emissions, text, device)
+                words = _align_transcript(processor, emissions, text, device, audio_chunk)
             else:
                 words = []
 
@@ -377,15 +451,20 @@ def transcribe_vad_segments(
             gap_after = 0.0
 
         # Add segment start offset to word timestamps.
+        # w tuple: (word, spike_start_s, spike_end_s, start_s, end_s, confidence, spike_start_frame, spike_end_frame)
         words_with_offset = [
             {
                 "word": w[0],
-                "start_s": round(w[1] + seg_start_offset, 6),
-                "end_s": round(w[2] + seg_start_offset, 6),
-                "confidence": w[3],
+                "spike_start_s": round(w[1] + seg_start_offset, 6),
+                "spike_end_s": round(w[2] + seg_start_offset, 6),
+                "start_s": round(w[3] + seg_start_offset, 6),
+                "end_s": round(w[4] + seg_start_offset, 6),
+                "confidence": w[5],
+                "spike_start_frame": w[6],
+                "spike_end_frame": w[7],
                 "frames": max(
                     1,
-                    round((w[2] - w[1]) * SAMPLE_RATE / FRAME_STRIDE_SAMPLES),
+                    round((w[4] - w[3]) * SAMPLE_RATE / FRAME_STRIDE_SAMPLES),
                 ),
             }
             for w in words
