@@ -339,10 +339,11 @@ def process_full(
             audio=audio,
             vad_result=vad_result,
             transcribe_fn=asr_transcribe_fn,
-            model_id=cfg.models.asr_whisper_model_id,
+            backend=cfg.models.asr_backend,
+            model_id=cfg.models.asr_model_id,
         )
     except ImportError:
-        raise  # already carries an install hint (faster-whisper missing)
+        raise  # already carries an install hint (transformers missing)
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(f"Stage 2 (ASR) failed: {exc}") from exc
 

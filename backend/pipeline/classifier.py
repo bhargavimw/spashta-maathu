@@ -5,9 +5,11 @@ import warnings
 
 from dotenv import load_dotenv
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from backend.config import config as _global_config
 
 
 # Tolerance for ASR/VAD timestamp jitter (seconds).
@@ -309,7 +311,7 @@ def _rule_based_fallback(source: ClassifierInput) -> ClassifierOutput:
 def classify_segments(
     raw_segments: list[dict],
     api_key: str | None = None,
-    model: str = "gemini-3.8-flash",
+    model: Optional[str] = None,
 ) -> ClassifierOutput:
     """
     Main Module 3 entry point.
@@ -330,6 +332,7 @@ def classify_segments(
 
     load_dotenv()
     api_key = api_key or os.getenv("GEMINI_API_KEY")
+    model = model or _global_config.models.gemini_model_id
 
     if not api_key:
         warnings.warn(

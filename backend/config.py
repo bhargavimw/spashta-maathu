@@ -68,17 +68,15 @@ class ModelConfig:
         default_factory=lambda: os.getenv("LOCAL_LLM_HOST", "http://localhost:11434")
     )
 
-    # ASR (Whole-file Kannada transcription — legacy IndicConformer path)
+    # ASR (Stage 3 — MMS-1B + kan adapter, per SPEC.md §3; no Whisper)
     asr_model_id: str = field(
-        default_factory=lambda: os.getenv(
-            "ASR_MODEL_ID", "ai4bharat/indicconformer_stt_kn_hybrid"
-        )
+        default_factory=lambda: os.getenv("ASR_MODEL_ID", "facebook/mms-1b-all")
     )
     asr_backend: str = field(
-        default_factory=lambda: os.getenv("ASR_BACKEND", "indicconformer")
+        default_factory=lambda: os.getenv("ASR_BACKEND", "mms")
     )
 
-    # ASR — Faster-Whisper segment-based transcription (Module 5)
+    # Kept for backward compatibility only; Whisper is not used per SPEC.md.
     asr_whisper_model_id: str = field(
         default_factory=lambda: os.getenv("WHISPER_MODEL_ID", "large-v3")
     )
