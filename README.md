@@ -209,7 +209,7 @@ We would rather be upfront about these:
 
 ## 12. Team and credits
 
-- **Team:** _Team XX, names here_
+- **Team:** _Team kannadakaagi ondannu otti, 
 - **Tools we relied on:** Silero VAD, MMS (facebook/mms-1b-all), AI4Bharat IndicConformer, torchaudio, DeepFilterNet / RNNoise / noisereduce, Indic Parler-TTS, Audacity, Label Studio.
 - Thanks to every volunteer who read our scripts and lent us their voice.
 
@@ -416,6 +416,6 @@ python backend/eval/run_eval.py
 
 ## 12. ತಂಡ ಮತ್ತು ಕೃತಜ್ಞತೆಗಳು
 
-- **ತಂಡ:** _Team XX, ಹೆಸರುಗಳನ್ನು ಇಲ್ಲಿ ಬರೆಯಿರಿ_
+- **ತಂಡ:** _Team ಕನ್ನಡಕ್ಕಾಗಿ ಒಂದನ್ನು ಒತ್ತಿ
 - **ಬಳಸಿದ ಉಪಕರಣಗಳು:** Silero VAD, MMS (facebook/mms-1b-all), AI4Bharat IndicConformer, torchaudio, DeepFilterNet / RNNoise / noisereduce, Indic Parler-TTS, Audacity, Label Studio.
 - ನಮ್ಮ ಸ್ಕ್ರಿಪ್ಟ್‌ಗಳನ್ನು ಓದಿ ತಮ್ಮ ಧ್ವನಿ ನೀಡಿದ ಎಲ್ಲಾ ಸ್ವಯಂಸೇವಕರಿಗೆ ಧನ್ಯವಾದಗಳು.
