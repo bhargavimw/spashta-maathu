@@ -209,7 +209,7 @@ We would rather be upfront about these:
 
 ## 12. Team and credits
 
-- **Team:** _Team kannadakaagi ondannu otti, 
+- **Team:** kannadakaagi ondannu otti
 - **Tools we relied on:** Silero VAD, MMS (facebook/mms-1b-all), AI4Bharat IndicConformer, torchaudio, DeepFilterNet / RNNoise / noisereduce, Indic Parler-TTS, Audacity, Label Studio.
 - Thanks to every volunteer who read our scripts and lent us their voice.
 
